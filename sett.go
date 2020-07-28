@@ -1,10 +1,13 @@
 package sett
 
 import (
+	"bytes"
+	"encoding/gob"
+	"errors"
+	badger "github.com/dgraph-io/badger/v2"
 	"log"
 	"strings"
-
-	badger "github.com/dgraph-io/badger/v2"
+	"time"
 )
 
 var (
@@ -13,8 +16,10 @@ var (
 )
 
 type Sett struct {
-	db    *badger.DB
-	table string
+	db        *badger.DB
+	table     string
+	ttl       time.Duration
+	keyLength int
 }
 
 // Open is constructor function to create badger instance,
@@ -36,19 +41,116 @@ func (s *Sett) Table(table string) *Sett {
 	return &Sett{db: s.db, table: table}
 }
 
+//WithTTL sets a (TTL) Time To Live value for values in this table
+// The TTL affects only the values added after the TTL is set.
+// Not applied to the values added before
+func (s *Sett) WithTTL(d time.Duration) *Sett {
+	s.ttl = d
+	return s
+}
+
+//WithKeyLength sets the key length for generated string keys
+// for example with Insert() call where the key is generated
+func (s *Sett) WithKeyLength(len int) *Sett {
+	s.keyLength = len
+	return s
+}
+
+type genericContainer struct {
+	V interface{}
+}
+
+func (s *Sett) GetUniqueKey(len int) (string, error) {
+	var key string
+	var err error
+	//We don't want to try indefinitely.
+	for t := 0; t < 100; t++ {
+		key, err = GenerateID(len)
+		if err != nil {
+			return "", err
+		}
+		if !s.HasKey(key) {
+			return key, nil
+		}
+	}
+	return "", errors.New("Couldn't generate a unique key ")
+}
+
+func (s *Sett) Insert(val interface{}) (string, error) {
+	keylen := 22
+	if s.keyLength > 0 {
+		keylen = s.keyLength
+	}
+	key, err := s.GetUniqueKey(keylen)
+	if err != nil {
+		return "", err
+	}
+	err = s.SetStruct(key, val)
+	if err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
+//SetStruct can be used to set the value as any struct type
+func (s *Sett) SetStruct(key string, val interface{}) error {
+	var bValue bytes.Buffer
+	container := genericContainer{V: val}
+	err := gob.NewEncoder(&bValue).Encode(&container)
+	if err != nil {
+		return err
+	}
+	err = s.db.Update(func(txn *badger.Txn) error {
+		e := badger.NewEntry([]byte(s.makeKey(key)), bValue.Bytes())
+		if s.ttl > 0 {
+			e.WithTTL(s.ttl)
+		}
+		err = txn.SetEntry(e)
+		return err
+	})
+	return err
+}
+
+func (s *Sett) GetStruct(key string) (interface{}, error) {
+
+	var err error
+	var container genericContainer
+	err = s.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(s.makeKey(key)))
+		if err != nil {
+			return err
+		}
+		var val []byte
+		val, err = item.ValueCopy(nil)
+		if err != nil {
+			return err
+		}
+		err = gob.NewDecoder(bytes.NewBuffer(val)).Decode(&container)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return container.V, nil
+}
+
 // Set passes a key & value to badger. Expects string for both
 // key and value for convenience, unlike badger itself
-func (s *Sett) Set(key string, val string) error {
+func (s *Sett) SetStr(key string, val string) error {
 	var err error
 	err = s.db.Update(func(txn *badger.Txn) error {
-		err = txn.Set([]byte(s.makeKey(key)), []byte(val))
+		e := badger.NewEntry([]byte(s.makeKey(key)), []byte(val))
+		if s.ttl > 0 {
+			e.WithTTL(s.ttl)
+		}
+		err = txn.SetEntry(e)
 		return err
 	})
 	return err
 }
 
 // Get returns value of queried key from badger
-func (s *Sett) Get(key string) (string, error) {
+func (s *Sett) GetStr(key string) (string, error) {
 	var val []byte
 	var err error
 	err = s.db.View(func(txn *badger.Txn) error {
@@ -63,6 +165,23 @@ func (s *Sett) Get(key string) (string, error) {
 		return nil
 	})
 	return string(val), err
+}
+
+func (s *Sett) Set(key string, val interface{}) error {
+	switch val.(type) {
+	case string:
+		return s.SetStr(key, val.(string))
+	default:
+		return s.SetStruct(key, val)
+	}
+}
+
+func (s *Sett) Get(key string) (interface{}, error) {
+	ret, err := s.GetStruct(key)
+	if err != nil {
+		return s.GetStr(key)
+	}
+	return ret, err
 }
 
 //HasKey checks the existence of a key
@@ -86,11 +205,14 @@ func (s *Sett) Scan(filter ...string) (map[string]string, error) {
 		defer it.Close()
 
 		if len(filter) > 1 {
-
+			return errors.New("Can't accept more than one filters")
 		}
-		fullFilter = s.table
+		if len(s.table) > 0 {
+			fullFilter = s.table + ":"
+		}
+
 		if len(filter) == 1 {
-			fullFilter += ":" + filter[0]
+			fullFilter += filter[0]
 		}
 
 		for it.Seek([]byte(fullFilter)); it.ValidForPrefix([]byte(fullFilter)); it.Next() {
