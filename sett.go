@@ -1,38 +1,26 @@
 package sett
 
 import (
-	"errors"
 	"log"
 	"strings"
-	"sync"
 
-	"github.com/dgraph-io/badger"
+	badger "github.com/dgraph-io/badger/v2"
 )
 
 var (
 	DefaultOptions         = badger.DefaultOptions
 	DefaultIteratorOptions = badger.DefaultIteratorOptions
-	BatchSize              = 500
 )
 
 type Sett struct {
-	batchSize int
-	db        *badger.DB
-	table     string
-	batch     []batchItem
-}
-
-type batchItem struct {
-	Key string
-	Val string
+	db    *badger.DB
+	table string
 }
 
 // Open is constructor function to create badger instance,
 // configure defaults and return struct instance
 func Open(opts badger.Options) *Sett {
 	s := Sett{}
-	// defaults
-	s.batchSize = BatchSize
 
 	db, err := badger.Open(opts)
 	if err != nil {
@@ -45,8 +33,7 @@ func Open(opts badger.Options) *Sett {
 // Table selects the table, operations are to be performed
 // on. Used as a prefix on the keys passed to badger
 func (s *Sett) Table(table string) *Sett {
-	s.table = strings.ToLower(table)
-	return s
+	return &Sett{db: s.db, table: table}
 }
 
 // Set passes a key & value to badger. Expects string for both
@@ -69,7 +56,7 @@ func (s *Sett) Get(key string) (string, error) {
 		if err != nil {
 			return err
 		}
-		val, err = item.Value()
+		val, err = item.ValueCopy(nil)
 		if err != nil {
 			return err
 		}
@@ -78,54 +65,13 @@ func (s *Sett) Get(key string) (string, error) {
 	return string(val), err
 }
 
-// Batchup is a helper for creating batches for use in SetBatch
-func (s *Sett) Batchup(key string, val string) {
-	item := batchItem{key, val}
-	s.batch = append(s.batch, item)
-}
-
-// SetBatch creates/updates a batch using mutiple goroutines
-func (s *Sett) SetBatch() error {
-	var wg sync.WaitGroup
-	var err error
-	itemCount := len(s.batch)
-	if itemCount == 0 {
-		return errors.New("no batch ready")
+//HasKey checks the existence of a key
+func (s *Sett) HasKey(key string) bool {
+	_, err := s.Get(key)
+	if err != nil {
+		return false
 	}
-	batchCount := int(itemCount / s.batchSize)
-	mod := itemCount % s.batchSize
-	if mod != 0 {
-		batchCount++
-	}
-
-	wg.Add(batchCount)
-	for i := 0; i < batchCount; i++ {
-		var insert []batchItem
-		start := i * s.batchSize
-		end := ((i + 1) * s.batchSize)
-		if i == (batchCount - 1) {
-			end = itemCount
-		}
-		insert = s.batch[start:end]
-		go s.batchSetter(insert, &wg)
-	}
-	wg.Wait()
-	s.batch = nil
-	return err
-}
-
-func (s *Sett) batchSetter(batch []batchItem, wg *sync.WaitGroup) error {
-	// goroutine assigned a slice of batchItem, needs more thought
-	// on error handling
-	var err error
-	defer wg.Done()
-	err = s.db.Update(func(txn *badger.Txn) error {
-		for _, el := range batch {
-			_ = txn.Set([]byte(s.makeKey(el.Key)), []byte(el.Val))
-		}
-		return err
-	})
-	return err
+	return true
 }
 
 // Scan returns all key/values from a (virtual) table. An
@@ -139,16 +85,19 @@ func (s *Sett) Scan(filter ...string) (map[string]string, error) {
 		it := txn.NewIterator(DefaultIteratorOptions)
 		defer it.Close()
 
+		if len(filter) > 1 {
+
+		}
 		fullFilter = s.table
 		if len(filter) == 1 {
-			fullFilter += filter[0]
+			fullFilter += ":" + filter[0]
 		}
 
 		for it.Seek([]byte(fullFilter)); it.ValidForPrefix([]byte(fullFilter)); it.Next() {
 			item := it.Item()
 			k := string(item.Key())
 			k = strings.TrimLeft(k, s.table)
-			v, _ := item.Value()
+			v, _ := item.ValueCopy(nil)
 			result[k] = string(v)
 		}
 		return err
@@ -199,15 +148,11 @@ func (s *Sett) Close() error {
 	return s.db.Close()
 }
 
-/* DEPRECATED */
-// Purge wraps badger PurgeOlderVersions method
-func (s *Sett) Purge() error {
-	// return s.db.PurgeOlderVersions()
-	return nil
-}
-
 func (s *Sett) makeKey(key string) string {
 	// makes the real key to be stored which
 	// comprises table name and key set
-	return s.table + key
+	if len(s.table) <= 0 {
+		return key
+	}
+	return s.table + ":" + key
 }

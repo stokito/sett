@@ -1,20 +1,14 @@
-# Sett
+# Sett2
+Fork of https://github.com/olliephillips/sett 
 
 ## A golang package which offers a simple abstraction on BadgerDB key/value store
-
-Based on BadgerDB v1 API. 
-No support for v2 at this time.
 
 ## API 
 
 Creating or opening a store with Sett is identical to BadgerDB
 
 ```
-opts := sett.DefaultOptions
-opts.Dir = "data"
-opts.ValueDir = "data/log"
-
-s := sett.Open(opts)
+s := sett.Open(sett.DefaultOptions("./data/mydb"))
 defer s.Close()
 ```
 
@@ -52,26 +46,6 @@ Drop "client" table including all keys
 
 ```
 s.Table("client").Drop()
-```
-
-### Batch Set
-
-Uses concurrent goroutines to split the insert payload, default is 500 keys per goroutine. To change this set the `sett.BatchSize` variable before opening connection.
-
-```
-sett.BatchSize = 50
-s := sett.Open(opts)
-defer s.Close()
-```
-
-Batch insert into "client" table
-
-```
-s.Batchup("hello", "world")
-s.Batchup("hello-again", "world")
-s.Batchup("goodbye", "world")
-
-s.Table("client").SetBatch()
 ```
 
 ### Get entire table, or subset of table
