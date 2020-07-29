@@ -146,7 +146,7 @@ func TestTableDelete(t *testing.T) {
 	}
 }
 
-func TestScanFilter(t *testing.T) {
+func TestKeysFilter(t *testing.T) {
 	//Add some random key values first
 	for i := 0; i < 15; i++ {
 		k := faker.RandomString(12)
@@ -184,56 +184,10 @@ func TestScanFilter(t *testing.T) {
 		}
 	}
 
-	scan, _ := s.Scan(prefix)
-	l := len(scan)
+	keys, _ := s.Keys(prefix)
+	l := len(keys)
 	if l != 15 {
-		t.Error("ScanAll expected 15 keys, got", l)
-	}
-}
-
-func TestTableScanAll(t *testing.T) {
-	table := faker.RandomString(8)
-	for i := 0; i < 15; i++ {
-		k := faker.RandomString(8)
-		//Make sure the key is unique
-		for c := 0; c < 100; c++ {
-			if !s.Table(table).HasKey(k) {
-				break
-			}
-		}
-		v := faker.RandomString(8)
-
-		err := s.Table(table).SetStr(k, v)
-		if err != nil {
-			t.Error("TableSet operation failed:", err)
-			return
-		}
-	}
-	scan, _ := s.Table(table).Scan()
-	l := len(scan)
-	if l != 15 {
-		t.Error("ScanAll expected 5 keys, got", l)
-	}
-
-}
-
-func TestTableScanFilter(t *testing.T) {
-	table := faker.RandomString(8)
-	for i := 0; i < 15; i++ {
-		k := faker.RandomString(8)
-		v := faker.RandomString(8)
-		s.Table(table).SetStr(k, v)
-	}
-	for i := 0; i < 15; i++ {
-		k := "prefix_" + faker.RandomString(8)
-		v := faker.RandomString(8)
-		s.Table(table).SetStr(k, v)
-	}
-
-	scan, _ := s.Table(table).Scan("prefix_")
-	l := len(scan)
-	if l != 15 {
-		t.Error("TestTableScanFilter expected 15 keys, got", l)
+		t.Error("Keys expected 15 keys, got", l)
 	}
 }
 
@@ -284,9 +238,6 @@ func TestTableNameShouldntPersist(t *testing.T) {
 	}
 
 	s.Table("another-table").SetStr(k, v)
-
-	//m, _ := s.Scan()
-	//t.Logf("map:\n%v", m)
 
 	vr2, err := s.GetStr(k2)
 	if err != nil {
@@ -447,5 +398,44 @@ func TestInsertWithExpiry(t *testing.T) {
 	_, err = s.Table("sessions").GetStruct(id)
 	if err == nil {
 		t.Error("Expiry is not working for Insert")
+	}
+}
+
+func TestGetKeys(t *testing.T) {
+	gob.Register(&UserSession{})
+
+	table := faker.RandomString(12)
+
+	for i := 0; i < 15; i++ {
+		session := UserSession{}
+		session.ID = faker.RandomString(12)
+		session.Email = faker.Internet().Email()
+
+		k, err := s.Table(table).Insert(&session)
+		if err != nil {
+			t.Error("Error inserting new items ", err)
+			return
+		}
+		t.Logf("key: %s", k)
+	}
+
+	keys, err := s.Table(table).Keys()
+	if err != nil {
+		t.Error("Error Getting item keys ", err)
+		return
+	}
+	if len(keys) != 15 {
+		t.Errorf("Expected 15 keys got %d", len(keys))
+	}
+	//t.Logf("Received keys %v ", keys)
+	for _, k := range keys {
+		t.Logf("key %s ", k)
+		it, err := s.Table(table).GetStruct(k)
+		if err != nil {
+			t.Errorf("Error getting item with key %s : %v ", k, err)
+			return
+		}
+		sess := it.(*UserSession)
+		t.Logf("retrieved session obj %v ", sess)
 	}
 }

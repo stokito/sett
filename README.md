@@ -98,24 +98,25 @@ This can be combined with TTL (Time to live) as well
 session_key, err := s.Table("sessions").WithTTL(1* time.Hour).Insert(session)
 ```
 
-### Get entire table, or subset of table
+### Get Keys of from a table, or subset of a table
 
-Use `sett.Scan()` to return contents of a virtual table or a subset of that table based on a prefix filter.
+Use `sett.Keys()` to return contents of a virtual table or a subset of that table based on a prefix filter.
 
-Retrieving all key/values from the "client" table
+Retrieving all keys from the "client" table
 
 ```
-scan, _ := s.Table("client").Scan()
-for k, v := range scan {
-	log.Println(k, v)
+keys, _ := s.Table("client").Keys()
+for _, k := range keys {
+	v, err := s.Table("client").GetStruct(k)
+	
 }
 ```
 
 Using a prefix filter to get a subset of key/values from "client" table. In the below example the key prefix filter is "active_"
 
 ```
-scan, _ := s.Table("client").Scan("active_")
-for k, v := range scan {
-	log.Println(k, v)
+keys, _ := s.Table("client").Keys("active_")
+for _,k := range keys {
+	v, err := s.Table("client").GetStruct(k)
 }
 ```

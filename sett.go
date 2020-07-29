@@ -6,7 +6,6 @@ import (
 	"errors"
 	badger "github.com/dgraph-io/badger/v2"
 	"log"
-	"strings"
 	"time"
 )
 
@@ -193,11 +192,11 @@ func (s *Sett) HasKey(key string) bool {
 	return true
 }
 
-// Scan returns all key/values from a (virtual) table. An
+// Keys returns all keys from a (virtual) table. An
 // optional filter allows the table prefix on the key search
 // to be expanded
-func (s *Sett) Scan(filter ...string) (map[string]string, error) {
-	var result = make(map[string]string)
+func (s *Sett) Keys(filter ...string) ([]string, error) {
+	var result []string
 	var err error
 	err = s.db.View(func(txn *badger.Txn) error {
 		var fullFilter string
@@ -214,13 +213,14 @@ func (s *Sett) Scan(filter ...string) (map[string]string, error) {
 		if len(filter) == 1 {
 			fullFilter += filter[0]
 		}
+		tn := len(s.table + ":")
 
 		for it.Seek([]byte(fullFilter)); it.ValidForPrefix([]byte(fullFilter)); it.Next() {
 			item := it.Item()
 			k := string(item.Key())
-			k = strings.TrimLeft(k, s.table)
-			v, _ := item.ValueCopy(nil)
-			result[k] = string(v)
+			k = k[tn:]
+
+			result = append(result, k)
 		}
 		return err
 	})
