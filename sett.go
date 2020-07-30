@@ -261,6 +261,47 @@ func (s *Sett) Keys(filter ...string) ([]string, error) {
 	return result, err
 }
 
+type FilterFunc func(k string, v interface{}) bool
+
+func (s *Sett) Filter(filter FilterFunc) ([]string, error) {
+	var result []string
+	var err error
+	err = s.db.View(func(txn *badger.Txn) error {
+		var fullFilter string
+		it := txn.NewIterator(DefaultIteratorOptions)
+		defer it.Close()
+
+		if len(s.table) > 0 {
+			fullFilter = s.table
+		}
+
+		tn := len(s.table + ":")
+
+		for it.Seek([]byte(fullFilter)); it.ValidForPrefix([]byte(fullFilter)); it.Next() {
+			item := it.Item()
+			k := string(item.Key())
+			k = k[tn:]
+
+			var container genericContainer
+			var val []byte
+			val, err = item.ValueCopy(nil)
+			if err != nil {
+				return err
+			}
+			err = gob.NewDecoder(bytes.NewBuffer(val)).Decode(&container)
+			if err != nil {
+				return err
+			}
+			if filter(k, container.V) {
+				result = append(result, k)
+			}
+
+		}
+		return err
+	})
+	return result, err
+}
+
 // Delete removes a key and its value from badger instance
 func (s *Sett) Delete(key string) error {
 	var err error

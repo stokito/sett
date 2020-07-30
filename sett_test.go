@@ -503,3 +503,53 @@ func TestCuttingWithInsert(t *testing.T) {
 		t.Error("The item can be retrieved even after cutting it")
 	}
 }
+
+type Item struct {
+	Color string
+	Name  string
+}
+
+func TestFilterFunc(t *testing.T) {
+	gob.Register(&Item{})
+	table := faker.RandomString(8)
+	var itm1 Item
+	itm1.Color = "green"
+	itm1.Name = faker.RandomString(12)
+	s.Table(table).Insert(&itm1)
+
+	var itm2 Item
+	itm2.Color = "red"
+	itm2.Name = faker.RandomString(12)
+	s.Table(table).Insert(&itm2)
+
+	var itm3 Item
+	itm3.Color = "green"
+	itm3.Name = faker.RandomString(12)
+	s.Table(table).Insert(&itm3)
+
+	keys, err := s.Table(table).Filter(func(k string, i interface{}) bool {
+		it := i.(*Item)
+		if it.Color == "red" {
+			return true
+		}
+		return false
+	})
+	if err != nil {
+		t.Errorf("Error running filter %v", err)
+		return
+	}
+	if len(keys) != 1 {
+		t.Errorf("Filter didn't find the right keys. got this: %v", keys)
+		return
+	}
+	i2, err := s.Table(table).GetStruct(keys[0])
+	if err != nil {
+		t.Errorf("Error getting item %s ", keys[0])
+		return
+	}
+	it2 := i2.(*Item)
+
+	if it2.Name != itm2.Name {
+		t.Errorf("Filter retrieval is incorrect expected %s received %s", itm2.Name, it2.Name)
+	}
+}
