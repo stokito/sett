@@ -110,6 +110,40 @@ func (s *Sett) SetStruct(key string, val interface{}) error {
 	return err
 }
 
+//Cut is to remove an item and return it
+//This is to avoid first getting the item and then deleting later
+//When you want to make sure there is only one owner to the
+//item, use Cut
+func (s *Sett) Cut(key string) (interface{}, error) {
+	var err error
+	var container genericContainer
+	err = s.db.Update(func(txn *badger.Txn) error {
+		bkey := []byte(s.makeKey(key))
+		item, err := txn.Get(bkey)
+		if err != nil {
+			return err
+		}
+		var val []byte
+		val, err = item.ValueCopy(nil)
+		if err != nil {
+			return err
+		}
+		err = gob.NewDecoder(bytes.NewBuffer(val)).Decode(&container)
+		if err != nil {
+			return err
+		}
+		err = txn.Delete(bkey)
+		if err != nil {
+			return err
+		}
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return container.V, nil
+}
+
 func (s *Sett) GetStruct(key string) (interface{}, error) {
 
 	var err error

@@ -439,3 +439,67 @@ func TestGetKeys(t *testing.T) {
 		t.Logf("retrieved session obj %v ", sess)
 	}
 }
+
+func TestCutting(t *testing.T) {
+	gob.Register(&Signup{})
+	var su Signup
+	su.Name = faker.Name().Name()
+	su.Email = faker.Internet().SafeEmail()
+	su.Age = faker.Number().NumberInt(2)
+
+	k := faker.RandomString(8)
+
+	err := s.Table("signups").SetStruct(k, &su)
+	if err != nil {
+		t.Error("Error setting struct value ", err)
+		return
+	}
+	sur, err := s.Table("signups").Cut(k)
+	if err != nil {
+		t.Error("Error cutting struct value ", err)
+		return
+	}
+
+	sur2 := sur.(*Signup)
+
+	if sur2.Name != su.Name {
+		t.Errorf("The retrieved value does not match %s vs %s", sur2.Name, su.Name)
+	}
+
+	_, err = s.Table("signups").GetStruct(k)
+	if err == nil {
+		t.Error("The item can be retrieved even after cutting it")
+	}
+}
+
+func TestCuttingWithInsert(t *testing.T) {
+	gob.Register(&Signup{})
+	table := faker.RandomString(8)
+	var su Signup
+	su.Name = faker.Name().Name()
+	su.Email = faker.Internet().SafeEmail()
+	su.Age = faker.Number().NumberInt(2)
+
+	k, err := s.Table(table).Insert(&su)
+	if err != nil {
+		t.Error("Error inserting struct value ", err)
+		return
+	}
+
+	sur, err := s.Table(table).Cut(k)
+	if err != nil {
+		t.Error("Error cutting struct value ", err)
+		return
+	}
+
+	sur2 := sur.(*Signup)
+
+	if sur2.Name != su.Name {
+		t.Errorf("The retrieved value does not match %s vs %s", sur2.Name, su.Name)
+	}
+
+	_, err = s.Table(table).GetStruct(k)
+	if err == nil {
+		t.Error("The item can be retrieved even after cutting it")
+	}
+}
