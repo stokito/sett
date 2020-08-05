@@ -91,44 +91,11 @@ func (s *Sett) Insert(val interface{}) (string, error) {
 	return key, nil
 }
 
-func (s *Sett) getStructItem(txn *badger.Txn, key string) (interface{}, error) {
-	var container genericContainer
-	bkey := []byte(s.makeKey(key))
-	item, err := txn.Get(bkey)
-	if err != nil {
-		return nil, err
-	}
-	var val []byte
-	val, err = item.ValueCopy(nil)
-	if err != nil {
-		return nil, err
-	}
-	err = gob.NewDecoder(bytes.NewBuffer(val)).Decode(&container)
-	if err != nil {
-		return nil, err
-	}
-	return container.V, nil
-}
-
-func (s *Sett) setStructItem(txn *badger.Txn, key string, val interface{}) error {
-	var bValue bytes.Buffer
-	container := genericContainer{V: val}
-	err := gob.NewEncoder(&bValue).Encode(&container)
-	if err != nil {
-		return err
-	}
-	e := badger.NewEntry([]byte(s.makeKey(key)), bValue.Bytes())
-	if s.ttl > 0 {
-		e.WithTTL(s.ttl)
-	}
-	err = txn.SetEntry(e)
-	return err
-}
-
 //SetStruct can be used to set the value as any struct type
 func (s *Sett) SetStruct(key string, val interface{}) error {
 	err := s.db.Update(func(txn *badger.Txn) error {
-		return s.setStructItem(txn, key, val)
+		sit := NewSettItem(s, txn, key)
+		return sit.SetStructValue(val)
 	})
 	return err
 }
@@ -170,24 +137,20 @@ func (s *Sett) Cut(key string) (interface{}, error) {
 func (s *Sett) GetStruct(key string) (interface{}, error) {
 
 	var err error
-	var container genericContainer
+	var iv interface{}
 	err = s.db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get([]byte(s.makeKey(key)))
+		si := NewSettItem(s, txn, key)
+		sv, err := si.GetStructValue()
 		if err != nil {
 			return err
 		}
-		var val []byte
-		val, err = item.ValueCopy(nil)
-		if err != nil {
-			return err
-		}
-		err = gob.NewDecoder(bytes.NewBuffer(val)).Decode(&container)
-		return err
+		iv = sv.V
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return container.V, nil
+	return iv, nil
 }
 
 // Set passes a key & value to badger. Expects string for both
@@ -195,32 +158,25 @@ func (s *Sett) GetStruct(key string) (interface{}, error) {
 func (s *Sett) SetStr(key string, val string) error {
 	var err error
 	err = s.db.Update(func(txn *badger.Txn) error {
-		e := badger.NewEntry([]byte(s.makeKey(key)), []byte(val))
-		if s.ttl > 0 {
-			e.WithTTL(s.ttl)
-		}
-		err = txn.SetEntry(e)
-		return err
+		si := NewSettItem(s, txn, key)
+		return si.SetStringValue(val)
 	})
 	return err
 }
 
 // Get returns value of queried key from badger
 func (s *Sett) GetStr(key string) (string, error) {
-	var val []byte
+	var val string
 	var err error
 	err = s.db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get([]byte(s.makeKey(key)))
-		if err != nil {
-			return err
-		}
-		val, err = item.ValueCopy(nil)
-		if err != nil {
-			return err
-		}
-		return nil
+		si := NewSettItem(s, txn, key)
+		val, err = si.GetStringValue()
+		return err
 	})
-	return string(val), err
+	if err != nil {
+		return "", err
+	}
+	return val, nil
 }
 
 func (s *Sett) Set(key string, val interface{}) error {
@@ -325,26 +281,42 @@ func (s *Sett) Filter(filter FilterFunc) ([]string, error) {
 	return result, err
 }
 
+//Lock locks an item. If Lock is not received, (receives an error instead)
+//the caller shouldn't do any updates. The lock was already taken.
+//This is used in concurrent access scenarios
+func (s *Sett) Lock(k string) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
+		sit := NewSettItem(s, txn, k)
+		return sit.Lock()
+	})
+	return err
+}
+
 type UpdateFunc func(v interface{}) error
 
-func (s *Sett) UpdateAndGet(k string, updater UpdateFunc) (interface{}, error) {
+//Update - update one item. This function gets the item by the key.
+// The caller is to update the item in the callback.
+// If the item was locked first, pass unlock= true
+func (s *Sett) Update(k string, updater UpdateFunc, unlock bool) (interface{}, error) {
 	var err error
 	var container genericContainer
 	err = s.db.Update(func(txn *badger.Txn) error {
 
-		iv, err := s.getStructItem(txn, k)
+		sit := NewSettItem(s, txn, k)
+		sit.Unlock(unlock)
+		sv, err := sit.GetStructValue()
 		if err != nil {
 			return err
 		}
-		err = updater(iv)
+		err = updater(sv.V)
 		if err != nil {
 			return err
 		}
-		err = s.setStructItem(txn, k, iv)
+		err = sit.SetStructValue(sv.V)
 		if err != nil {
 			return err
 		}
-		container.V = iv
+		container.V = sv.V
 		return err
 	})
 	if err != nil {
@@ -353,14 +325,23 @@ func (s *Sett) UpdateAndGet(k string, updater UpdateFunc) (interface{}, error) {
 	return container.V, nil
 }
 
-// Delete removes a key and its value from badger instance
-func (s *Sett) Delete(key string) error {
-	var err error
-	err = s.db.Update(func(txn *badger.Txn) error {
-		err = txn.Delete([]byte(s.makeKey(key)))
-		return err
+func (s *Sett) deleteItem(key string, unlock bool) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
+		sit := NewSettItem(s, txn, key)
+		sit.Unlock(unlock)
+		return sit.Delete()
 	})
 	return err
+}
+
+// Delete removes a key and its value from badger instance
+func (s *Sett) Delete(key string) error {
+	return s.deleteItem(key, false)
+}
+
+//UnlockAndDelete - Unlock and then delete the item.
+func (s *Sett) UnlockAndDelete(key string) error {
+	return s.deleteItem(key, true)
 }
 
 // Drop removes all keys with table prefix from badger,

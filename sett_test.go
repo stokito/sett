@@ -4,6 +4,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"github.com/prasanthmj/sett"
+	"go.uber.org/goleak"
 	"os"
 	"sync"
 	"syreclabs.com/go/faker"
@@ -11,22 +12,26 @@ import (
 	"time"
 )
 
-// instance for testing
-var s *sett.Sett
+func initSett() *sett.Sett {
+	os.RemoveAll("./data/jobsdb7")
+	opts := sett.DefaultOptions("./data/jobsdb7")
+	opts.Logger = nil
+	s := sett.Open(opts)
+	return s
+}
 
-func TestMain(m *testing.M) {
-	// set up database for tests
-
-	s = sett.Open(sett.DefaultOptions("./data/jobsdb7"))
-	defer s.Close()
-
+func closeSet(s *sett.Sett) {
+	s.Close()
 	// clean up
 	os.RemoveAll("./data/jobsdb7")
-
-	os.Exit(m.Run())
 }
 
 func TestSet(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	s := initSett()
+	defer closeSet(s)
+
 	k := faker.RandomString(8)
 	v := faker.RandomString(8)
 	// should be able to add a key and value
@@ -60,9 +65,12 @@ func TestSet(t *testing.T) {
 		t.Error("Second retrieval Value does not match")
 		return
 	}
+
 }
 
 func TestDelete(t *testing.T) {
+	s := initSett()
+	defer closeSet(s)
 	k := faker.RandomString(8)
 	v := faker.RandomString(8)
 
@@ -106,6 +114,9 @@ func TestDelete(t *testing.T) {
 }
 
 func TestTableGet(t *testing.T) {
+	s := initSett()
+	defer closeSet(s)
+
 	table := faker.RandomString(8)
 	k := faker.RandomString(8)
 	v := faker.RandomString(8)
@@ -128,6 +139,9 @@ func TestTableGet(t *testing.T) {
 }
 
 func TestTableDelete(t *testing.T) {
+	s := initSett()
+	defer closeSet(s)
+
 	table := faker.RandomString(8)
 	k := faker.RandomString(8)
 	v := faker.RandomString(8)
@@ -149,6 +163,9 @@ func TestTableDelete(t *testing.T) {
 }
 
 func TestKeysFilter(t *testing.T) {
+	s := initSett()
+	defer closeSet(s)
+
 	//Add some random key values first
 	for i := 0; i < 15; i++ {
 		k := faker.RandomString(12)
@@ -194,6 +211,9 @@ func TestKeysFilter(t *testing.T) {
 }
 
 func TestDrop(t *testing.T) {
+	s := initSett()
+	defer closeSet(s)
+
 	table := faker.RandomString(8)
 	var keys [15]string
 	for i := 0; i < 15; i++ {
@@ -220,6 +240,9 @@ func TestDrop(t *testing.T) {
 }
 
 func TestTableNameShouldntPersist(t *testing.T) {
+	s := initSett()
+	defer closeSet(s)
+
 	table := faker.RandomString(8)
 	k := faker.RandomString(8)
 	v := faker.RandomString(8)
@@ -253,6 +276,9 @@ func TestTableNameShouldntPersist(t *testing.T) {
 }
 
 func TestTTL(t *testing.T) {
+	s := initSett()
+	defer closeSet(s)
+
 	table := faker.RandomString(8)
 
 	pk := faker.RandomString(8)
@@ -299,6 +325,9 @@ type Signup struct {
 }
 
 func TestSettingStruct(t *testing.T) {
+	s := initSett()
+	defer closeSet(s)
+
 	gob.Register(&Signup{})
 	var su Signup
 	su.Name = faker.Name().Name()
@@ -326,6 +355,8 @@ func TestSettingStruct(t *testing.T) {
 }
 
 func TestSimpleSet(t *testing.T) {
+	s := initSett()
+	defer closeSet(s)
 
 	k := faker.RandomString(12)
 	v := faker.RandomString(12)
@@ -352,6 +383,8 @@ type UserSession struct {
 
 func TestInsert(t *testing.T) {
 	gob.Register(&UserSession{})
+	s := initSett()
+	defer closeSet(s)
 
 	session := UserSession{}
 	session.ID = faker.RandomString(12)
@@ -388,6 +421,8 @@ func TestInsert(t *testing.T) {
 
 func TestInsertWithExpiry(t *testing.T) {
 	gob.Register(&UserSession{})
+	s := initSett()
+	defer closeSet(s)
 
 	session := UserSession{}
 	session.ID = faker.RandomString(12)
@@ -405,6 +440,8 @@ func TestInsertWithExpiry(t *testing.T) {
 
 func TestGetKeys(t *testing.T) {
 	gob.Register(&UserSession{})
+	s := initSett()
+	defer closeSet(s)
 
 	table := faker.RandomString(12)
 
@@ -444,6 +481,9 @@ func TestGetKeys(t *testing.T) {
 
 func TestCutting(t *testing.T) {
 	gob.Register(&Signup{})
+	s := initSett()
+	defer closeSet(s)
+
 	var su Signup
 	su.Name = faker.Name().Name()
 	su.Email = faker.Internet().SafeEmail()
@@ -476,6 +516,9 @@ func TestCutting(t *testing.T) {
 
 func TestCuttingWithInsert(t *testing.T) {
 	gob.Register(&Signup{})
+	s := initSett()
+	defer closeSet(s)
+
 	table := faker.RandomString(8)
 	var su Signup
 	su.Name = faker.Name().Name()
@@ -513,6 +556,9 @@ type Item struct {
 
 func TestFilterFunc(t *testing.T) {
 	gob.Register(&Item{})
+	s := initSett()
+	defer closeSet(s)
+
 	table := faker.RandomString(8)
 	var itm1 Item
 	itm1.Color = "green"
@@ -568,8 +614,11 @@ type ItemStatus struct {
 	Errors     []string
 }
 
-func TestUpdateAndGet(t *testing.T) {
+func TestUpdate(t *testing.T) {
 	gob.Register(&TaskObj{})
+	s := initSett()
+	defer closeSet(s)
+
 	table := faker.RandomString(8)
 	var task TaskObj
 	task.ID = uint64(faker.Number().NumberInt64(3))
@@ -578,12 +627,12 @@ func TestUpdateAndGet(t *testing.T) {
 		t.Errorf("Error inserting task %v", err)
 		return
 	}
-	itask, err := s.Table(table).UpdateAndGet(key, func(iv interface{}) error {
+	itask, err := s.Table(table).Update(key, func(iv interface{}) error {
 		tobj := iv.(*TaskObj)
 		tobj.Access += 1
 		tobj.Status = "inprogress"
 		return nil
-	})
+	}, false)
 
 	if err != nil {
 		t.Errorf("Error updating task %v", err)
@@ -597,10 +646,9 @@ func TestUpdateAndGet(t *testing.T) {
 }
 
 func TestConcurrentAccess(t *testing.T) {
-	// goleak detects leaks in badgerdb polluting the overall results
-	//defer goleak.VerifyNone(t)
-	os.RemoveAll("./data/tasksdb")
-	store := sett.Open(sett.DefaultOptions("./data/tasksdb"))
+	defer goleak.VerifyNone(t)
+	store := initSett()
+	defer closeSet(store)
 
 	var maxItems uint64 = 100
 	var i uint64
@@ -670,8 +718,6 @@ func TestConcurrentAccess(t *testing.T) {
 	close(closed)
 
 	wg.Wait()
-	store.Close()
-	os.RemoveAll("./data/tasksdb")
 
 	t.Logf("Checking access counts ...")
 
@@ -686,9 +732,10 @@ func TestConcurrentAccess(t *testing.T) {
 }
 
 func TestConcurrentUpdate(t *testing.T) {
-	//defer goleak.VerifyNone(t)
-	os.RemoveAll("./data/tasksdb")
-	store := sett.Open(sett.DefaultOptions("./data/tasksdb"))
+	defer goleak.VerifyNone(t)
+
+	store := initSett()
+	defer closeSet(store)
 
 	var maxItems uint64 = 100
 	var i uint64
@@ -722,14 +769,14 @@ func TestConcurrentUpdate(t *testing.T) {
 				select {
 				case akey := <-access_key:
 					t.Logf("to access key %s", akey)
-					iobj, err := store.Table(tab).UpdateAndGet(akey, func(iv interface{}) error {
+					iobj, err := store.Table(tab).Update(akey, func(iv interface{}) error {
 						tobj := iv.(*TaskObj)
 						if tobj.Status == "inprogress" {
 							return errors.New("Conflicting Access")
 						}
 						tobj.Status = "inprogress"
 						return nil
-					})
+					}, false)
 					if err == nil {
 						tobj2 := iobj.(*TaskObj)
 						access.Lock()
@@ -766,8 +813,6 @@ func TestConcurrentUpdate(t *testing.T) {
 	close(closed)
 
 	wg.Wait()
-	store.Close()
-	os.RemoveAll("./data/tasksdb")
 
 	t.Logf("Checking access counts ...")
 
@@ -785,4 +830,96 @@ func TestConcurrentUpdate(t *testing.T) {
 			t.Logf("Task %d Error: %s", stat.TaskID, e)
 		}*/
 	}
+}
+
+func TestLock(t *testing.T) {
+	gob.Register(&TaskObj{})
+	s := initSett()
+	defer closeSet(s)
+
+	table := faker.RandomString(8)
+	var task TaskObj
+	task.ID = uint64(faker.Number().NumberInt64(3))
+	key, err := s.Table(table).Insert(&task)
+	if err != nil {
+		t.Errorf("Error inserting task %v", err)
+		return
+	}
+	err = s.Table(table).Lock(key)
+	if err != nil {
+		t.Errorf("Couldn't lock item %s ", key)
+		return
+	}
+	err = s.Table(table).Lock(key)
+	if err == nil {
+		t.Errorf("Could lock a locked item %s ", key)
+		return
+	}else{
+		t.Logf("Correctly Can't lock a locked item err %v", err)	
+	}
+	
+	var task2 TaskObj
+	err = s.Table(table).SetStruct(key, &task2)
+	if err == nil{
+		t.Errorf("Can set a locked item %s ", key)
+	}else{
+		t.Logf("Correctly Can't update a locked item err %v", err)
+	}
+	_, err = s.Table(table).Update(key, func(v interface{}) error{
+		tobj := v.(*TaskObj)
+		tobj.ID = uint64(faker.Number().NumberInt64(3))
+		return nil
+	}, false)
+	
+	if err == nil {
+		t.Errorf("Can update a locked item without unlocking")
+	}else{
+		t.Logf("Correctly Can't update a locked item err %v", err)
+	}
+	
+	it2, err := s.Table(table).Update(key, func(v interface{}) error{
+		tobj := v.(*TaskObj)
+		tobj.ID = uint64(faker.Number().NumberInt64(3))
+		return nil
+	}, true)
+	if err != nil {
+		t.Errorf("Couldn't update an item even with unlock option ")
+	}else{
+		tobj2 := it2.(*TaskObj)
+		t.Logf("Updated after unlocking. Orig ID %d updated ID %d ",task.ID, tobj2.ID )
+	}
+	
+}
+
+func TestLockAndDelete(t *testing.T) {
+	gob.Register(&TaskObj{})
+	s := initSett()
+	defer closeSet(s)
+
+	table := faker.RandomString(8)
+	var task TaskObj
+	task.ID = uint64(faker.Number().NumberInt64(3))
+	key, err := s.Table(table).Insert(&task)
+	if err != nil {
+		t.Errorf("Error inserting task %v", err)
+		return
+	}
+	err = s.Table(table).Lock(key)
+	if err != nil {
+		t.Errorf("Couldn't lock item %s ", key)
+		return
+	}
+	
+	err = s.Table(table).Delete(key)
+	if err == nil {
+		t.Errorf("Can delete locked item %s", key)
+	}else{
+		t.Logf("Correctly can't delete locked item. %v", err)
+	}
+	
+	err = s.Table(table).UnlockAndDelete(key)
+	if err != nil{
+		t.Errorf("Can't delete item even after unlocking %v", err)
+	}
+	
 }
