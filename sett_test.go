@@ -2,8 +2,10 @@ package sett_test
 
 import (
 	"encoding/gob"
+	"errors"
 	"github.com/prasanthmj/sett"
 	"os"
+	"sync"
 	"syreclabs.com/go/faker"
 	"testing"
 	"time"
@@ -551,5 +553,236 @@ func TestFilterFunc(t *testing.T) {
 
 	if it2.Name != itm2.Name {
 		t.Errorf("Filter retrieval is incorrect expected %s received %s", itm2.Name, it2.Name)
+	}
+}
+
+type TaskObj struct {
+	ID     uint64
+	Status string
+	Access uint64
+}
+type ItemStatus struct {
+	TaskID     uint64
+	Accessed   uint64
+	AccessedBy uint64
+	Errors     []string
+}
+
+func TestUpdateAndGet(t *testing.T) {
+	gob.Register(&TaskObj{})
+	table := faker.RandomString(8)
+	var task TaskObj
+	task.ID = uint64(faker.Number().NumberInt64(3))
+	key, err := s.Table(table).Insert(&task)
+	if err != nil {
+		t.Errorf("Error inserting task %v", err)
+		return
+	}
+	itask, err := s.Table(table).UpdateAndGet(key, func(iv interface{}) error {
+		tobj := iv.(*TaskObj)
+		tobj.Access += 1
+		tobj.Status = "inprogress"
+		return nil
+	})
+
+	if err != nil {
+		t.Errorf("Error updating task %v", err)
+		return
+	}
+
+	tobj2 := itask.(*TaskObj)
+
+	t.Logf("Received task obj after update ID %d Access %d Status %s ",
+		tobj2.ID, tobj2.Access, tobj2.Status)
+}
+
+func TestConcurrentAccess(t *testing.T) {
+	// goleak detects leaks in badgerdb polluting the overall results
+	//defer goleak.VerifyNone(t)
+	os.RemoveAll("./data/tasksdb")
+	store := sett.Open(sett.DefaultOptions("./data/tasksdb"))
+
+	var maxItems uint64 = 100
+	var i uint64
+	gob.Register(&TaskObj{})
+	tab := faker.RandomString(8)
+	stats := make(map[string]*ItemStatus)
+
+	table := store.Table(tab)
+
+	t.Logf("Creating Items ...")
+	for i = 0; i < maxItems; i++ {
+		t := &TaskObj{i, "", 0}
+		k, err := table.Insert(t)
+		if err != nil {
+			continue
+		}
+		stats[k] = &ItemStatus{}
+	}
+
+	access_key := make(chan string)
+	closed := make(chan struct{})
+	var wg sync.WaitGroup
+	var access sync.RWMutex
+
+	t.Logf("Creating goroutines to access items ...")
+	for m := 0; m < 10; m++ {
+		go func() {
+			wg.Add(1)
+			defer wg.Done()
+			for {
+				select {
+				case akey := <-access_key:
+					t.Logf("to access key %s", akey)
+					iobj, err := store.Table(tab).Cut(akey)
+					t.Logf("Cut the item %s", akey)
+					if err == nil {
+						tobj := iobj.(*TaskObj)
+						access.Lock()
+						stats[akey].TaskID = tobj.ID
+						stats[akey].Accessed += 1
+						access.Unlock()
+					} else {
+						t.Logf("Couldn't cut item %s", akey)
+					}
+				case <-closed:
+					return
+				}
+			}
+		}()
+	}
+
+	t.Logf("Sending signals to access items ...")
+	keys, err := table.Keys()
+	if err != nil {
+		t.Errorf("Error accessing keys of the table %v", err)
+	} else {
+		for _, km := range keys {
+			t.Logf("Signalling access key (multiple times) %s", km)
+			for kk := 0; kk < 10; kk++ {
+				access_key <- km
+			}
+
+		}
+	}
+
+	<-time.After(4 * time.Second)
+	close(closed)
+
+	wg.Wait()
+	store.Close()
+	os.RemoveAll("./data/tasksdb")
+
+	t.Logf("Checking access counts ...")
+
+	for _, ki := range keys {
+		stat, ok := stats[ki]
+		if !ok {
+			t.Errorf("Key %s was not in the stats", ki)
+			continue
+		}
+		t.Logf("Key %s Accessed %d Task %d", ki, stat.Accessed, stat.TaskID)
+	}
+}
+
+func TestConcurrentUpdate(t *testing.T) {
+	//defer goleak.VerifyNone(t)
+	os.RemoveAll("./data/tasksdb")
+	store := sett.Open(sett.DefaultOptions("./data/tasksdb"))
+
+	var maxItems uint64 = 100
+	var i uint64
+	gob.Register(&TaskObj{})
+	tab := faker.RandomString(8)
+	stats := make(map[string]*ItemStatus)
+
+	table := store.Table(tab)
+
+	t.Logf("Creating Items ...")
+	for i = 0; i < maxItems; i++ {
+		t := &TaskObj{i, "", 0}
+		k, err := table.Insert(t)
+		if err != nil {
+			continue
+		}
+		stats[k] = &ItemStatus{}
+	}
+
+	access_key := make(chan string, 5)
+	closed := make(chan struct{})
+	var wg sync.WaitGroup
+	var access sync.RWMutex
+
+	t.Logf("Creating goroutines to access items ...")
+	for m := 0; m < 10; m++ {
+		go func() {
+			wg.Add(1)
+			defer wg.Done()
+			for {
+				select {
+				case akey := <-access_key:
+					t.Logf("to access key %s", akey)
+					iobj, err := store.Table(tab).UpdateAndGet(akey, func(iv interface{}) error {
+						tobj := iv.(*TaskObj)
+						if tobj.Status == "inprogress" {
+							return errors.New("Conflicting Access")
+						}
+						tobj.Status = "inprogress"
+						return nil
+					})
+					if err == nil {
+						tobj2 := iobj.(*TaskObj)
+						access.Lock()
+						stats[akey].TaskID = tobj2.ID
+						stats[akey].Accessed += 1
+						access.Unlock()
+					} else {
+						access.Lock()
+						stats[akey].Errors = append(stats[akey].Errors, err.Error())
+						access.Unlock()
+					}
+				case <-closed:
+					return
+				}
+			}
+		}()
+	}
+
+	t.Logf("Sending signals to access items ...")
+	keys, err := table.Keys()
+	if err != nil {
+		t.Errorf("Error accessing keys of the table %v", err)
+	} else {
+		for _, km := range keys {
+			t.Logf("Signalling access key (multiple times) %s", km)
+			for kk := 0; kk < 10; kk++ {
+				access_key <- km
+			}
+
+		}
+	}
+
+	<-time.After(4 * time.Second)
+	close(closed)
+
+	wg.Wait()
+	store.Close()
+	os.RemoveAll("./data/tasksdb")
+
+	t.Logf("Checking access counts ...")
+
+	for _, ki := range keys {
+		stat, ok := stats[ki]
+		if !ok {
+			t.Errorf("Key %s was not in the stats", ki)
+			continue
+		}
+		t.Logf("Key %s Accessed %d Task %d", ki, stat.Accessed, stat.TaskID)
+		if stat.Accessed > 1 {
+			t.Errorf("Key %s got accessed more than once", ki)
+		}
+		/*for _, e := range stats[ki].Errors {
+			t.Logf("Task %d Error: %s", stat.TaskID, e)
+		}*/
 	}
 }

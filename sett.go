@@ -91,21 +91,44 @@ func (s *Sett) Insert(val interface{}) (string, error) {
 	return key, nil
 }
 
-//SetStruct can be used to set the value as any struct type
-func (s *Sett) SetStruct(key string, val interface{}) error {
+func (s *Sett) getStructItem(txn *badger.Txn, key string) (interface{}, error) {
+	var container genericContainer
+	bkey := []byte(s.makeKey(key))
+	item, err := txn.Get(bkey)
+	if err != nil {
+		return nil, err
+	}
+	var val []byte
+	val, err = item.ValueCopy(nil)
+	if err != nil {
+		return nil, err
+	}
+	err = gob.NewDecoder(bytes.NewBuffer(val)).Decode(&container)
+	if err != nil {
+		return nil, err
+	}
+	return container.V, nil
+}
+
+func (s *Sett) setStructItem(txn *badger.Txn, key string, val interface{}) error {
 	var bValue bytes.Buffer
 	container := genericContainer{V: val}
 	err := gob.NewEncoder(&bValue).Encode(&container)
 	if err != nil {
 		return err
 	}
-	err = s.db.Update(func(txn *badger.Txn) error {
-		e := badger.NewEntry([]byte(s.makeKey(key)), bValue.Bytes())
-		if s.ttl > 0 {
-			e.WithTTL(s.ttl)
-		}
-		err = txn.SetEntry(e)
-		return err
+	e := badger.NewEntry([]byte(s.makeKey(key)), bValue.Bytes())
+	if s.ttl > 0 {
+		e.WithTTL(s.ttl)
+	}
+	err = txn.SetEntry(e)
+	return err
+}
+
+//SetStruct can be used to set the value as any struct type
+func (s *Sett) SetStruct(key string, val interface{}) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
+		return s.setStructItem(txn, key, val)
 	})
 	return err
 }
@@ -300,6 +323,34 @@ func (s *Sett) Filter(filter FilterFunc) ([]string, error) {
 		return err
 	})
 	return result, err
+}
+
+type UpdateFunc func(v interface{}) error
+
+func (s *Sett) UpdateAndGet(k string, updater UpdateFunc) (interface{}, error) {
+	var err error
+	var container genericContainer
+	err = s.db.Update(func(txn *badger.Txn) error {
+
+		iv, err := s.getStructItem(txn, k)
+		if err != nil {
+			return err
+		}
+		err = updater(iv)
+		if err != nil {
+			return err
+		}
+		err = s.setStructItem(txn, k, iv)
+		if err != nil {
+			return err
+		}
+		container.V = iv
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return container.V, nil
 }
 
 // Delete removes a key and its value from badger instance
