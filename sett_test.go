@@ -3,7 +3,7 @@ package sett_test
 import (
 	"encoding/gob"
 	"errors"
-	"github.com/prasanthmj/sett"
+	"github.com/prasanthmj/sett/v2"
 	"go.uber.org/goleak"
 	"os"
 	"sync"
@@ -27,7 +27,9 @@ func closeSet(s *sett.Sett) {
 }
 
 func TestSet(t *testing.T) {
-	defer goleak.VerifyNone(t)
+	defer goleak.VerifyNone(t,
+		goleak.IgnoreTopFunction("github.com/golang/glog.(*fileSink).flushDaemon"),
+	)
 
 	s := initSett()
 	defer closeSet(s)
@@ -646,7 +648,9 @@ func TestUpdate(t *testing.T) {
 }
 
 func TestConcurrentAccess(t *testing.T) {
-	defer goleak.VerifyNone(t)
+	defer goleak.VerifyNone(t,
+		goleak.IgnoreTopFunction("github.com/golang/glog.(*fileSink).flushDaemon"),
+	)
 	store := initSett()
 	defer closeSet(store)
 
@@ -732,7 +736,9 @@ func TestConcurrentAccess(t *testing.T) {
 }
 
 func TestConcurrentUpdate(t *testing.T) {
-	defer goleak.VerifyNone(t)
+	defer goleak.VerifyNone(t,
+		goleak.IgnoreTopFunction("github.com/golang/glog.(*fileSink).flushDaemon"),
+	)
 
 	store := initSett()
 	defer closeSet(store)
