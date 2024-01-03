@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/gob"
 	"errors"
+	"fmt"
 	badger "github.com/dgraph-io/badger/v2"
-	"log"
 	"time"
 )
 
@@ -23,15 +23,15 @@ type Sett struct {
 
 // Open is constructor function to create badger instance,
 // configure defaults and return struct instance
-func Open(opts badger.Options) *Sett {
+func Open(opts badger.Options) (*Sett, error) {
 	s := Sett{}
 
 	db, err := badger.Open(opts)
 	if err != nil {
-		log.Fatal("Open: create or open failed")
+		return nil, fmt.Errorf("create or open db failed: %w", err)
 	}
 	s.db = db
-	return &s
+	return &s, nil
 }
 
 // Table selects the table, operations are to be performed
@@ -62,7 +62,7 @@ type genericContainer struct {
 func (s *Sett) GetUniqueKey(len int) (string, error) {
 	var key string
 	var err error
-	//We don't want to try indefinitely.
+	// We don't want to try indefinitely.
 	for t := 0; t < 100; t++ {
 		key, err = GenerateID(len)
 		if err != nil {

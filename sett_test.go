@@ -16,7 +16,7 @@ func initSett() *sett.Sett {
 	os.RemoveAll("./data/jobsdb7")
 	opts := sett.DefaultOptions("./data/jobsdb7")
 	opts.Logger = nil
-	s := sett.Open(opts)
+	s, _ := sett.Open(opts)
 	return s
 }
 
