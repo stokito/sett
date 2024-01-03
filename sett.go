@@ -155,8 +155,7 @@ func (s *Sett) GetStruct(key string) (interface{}, error) {
 // SetStr passes a key & value to badger. Expects string for both
 // key and value for convenience, unlike badger itself
 func (s *Sett) SetStr(key string, val string) error {
-	var err error
-	err = s.db.Update(func(txn *badger.Txn) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
 		si := NewSettItem(s, txn, key)
 		return si.SetStringValue(val)
 	})
@@ -198,10 +197,7 @@ func (s *Sett) Get(key string) (interface{}, error) {
 // HasKey checks the existence of a key
 func (s *Sett) HasKey(key string) bool {
 	_, err := s.Get(key)
-	if err != nil {
-		return false
-	}
-	return true
+	return err == nil
 }
 
 // Keys returns all keys from a (virtual) table. An
