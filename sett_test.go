@@ -854,41 +854,41 @@ func TestLock(t *testing.T) {
 	if err == nil {
 		t.Errorf("Could lock a locked item %s ", key)
 		return
-	}else{
-		t.Logf("Correctly Can't lock a locked item err %v", err)	
+	} else {
+		t.Logf("Correctly Can't lock a locked item err %v", err)
 	}
-	
+
 	var task2 TaskObj
 	err = s.Table(table).SetStruct(key, &task2)
-	if err == nil{
+	if err == nil {
 		t.Errorf("Can set a locked item %s ", key)
-	}else{
+	} else {
 		t.Logf("Correctly Can't update a locked item err %v", err)
 	}
-	_, err = s.Table(table).Update(key, func(v interface{}) error{
+	_, err = s.Table(table).Update(key, func(v interface{}) error {
 		tobj := v.(*TaskObj)
 		tobj.ID = uint64(faker.Number().NumberInt64(3))
 		return nil
 	}, false)
-	
+
 	if err == nil {
 		t.Errorf("Can update a locked item without unlocking")
-	}else{
+	} else {
 		t.Logf("Correctly Can't update a locked item err %v", err)
 	}
-	
-	it2, err := s.Table(table).Update(key, func(v interface{}) error{
+
+	it2, err := s.Table(table).Update(key, func(v interface{}) error {
 		tobj := v.(*TaskObj)
 		tobj.ID = uint64(faker.Number().NumberInt64(3))
 		return nil
 	}, true)
 	if err != nil {
 		t.Errorf("Couldn't update an item even with unlock option ")
-	}else{
+	} else {
 		tobj2 := it2.(*TaskObj)
-		t.Logf("Updated after unlocking. Orig ID %d updated ID %d ",task.ID, tobj2.ID )
+		t.Logf("Updated after unlocking. Orig ID %d updated ID %d ", task.ID, tobj2.ID)
 	}
-	
+
 }
 
 func TestLockAndDelete(t *testing.T) {
@@ -909,17 +909,17 @@ func TestLockAndDelete(t *testing.T) {
 		t.Errorf("Couldn't lock item %s ", key)
 		return
 	}
-	
+
 	err = s.Table(table).Delete(key)
 	if err == nil {
 		t.Errorf("Can delete locked item %s", key)
-	}else{
+	} else {
 		t.Logf("Correctly can't delete locked item. %v", err)
 	}
-	
+
 	err = s.Table(table).UnlockAndDelete(key)
-	if err != nil{
+	if err != nil {
 		t.Errorf("Can't delete item even after unlocking %v", err)
 	}
-	
+
 }

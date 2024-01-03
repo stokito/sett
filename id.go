@@ -6,8 +6,8 @@ import (
 
 // Ref: https://elithrar.github.io/article/generating-secure-random-numbers-crypto-rand/
 
-//GenerateRandomBytes returns securely generated random bytes
-//Returns error if the system does not have a random generator
+// GenerateID returns securely generated random bytes
+// Returns error if the system does not have a random generator
 func GenerateID(length int) (string, error) {
 	const letters = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 	bytes := make([]byte, length)

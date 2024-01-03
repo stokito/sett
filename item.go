@@ -19,6 +19,7 @@ type SettItem struct {
 	txn     *badger.Txn
 	unlock  bool
 }
+
 type SettValueItem struct {
 	V      interface{}
 	Locked bool
@@ -28,11 +29,12 @@ func NewSettItem(s *Sett, txn *badger.Txn, key string) *SettItem {
 	k := s.makeKey(key)
 	return &SettItem{fullKey: k, s: s, txn: txn, unlock: false}
 }
+
 func (si *SettItem) Unlock(u bool) {
 	si.unlock = u
 }
-func (si *SettItem) GetStructValue() (*SettValueItem, error) {
 
+func (si *SettItem) GetStructValue() (*SettValueItem, error) {
 	item, err := si.txn.Get([]byte(si.fullKey))
 	if err != nil {
 		return nil, err
@@ -58,6 +60,7 @@ func (si *SettItem) GetStructValue() (*SettValueItem, error) {
 	ret := &SettValueItem{V: container.V, Locked: locked}
 	return ret, nil
 }
+
 func (si *SettItem) IsLocked() bool {
 	item, err := si.txn.Get([]byte(si.fullKey))
 	if err != nil {
@@ -104,6 +107,7 @@ func (si *SettItem) SetStructValue(val interface{}) error {
 	err = si.setEntry(e, STRUCT_TYPE)
 	return err
 }
+
 func (si *SettItem) setEntry(e *badger.Entry, vtype byte) error {
 	if si.s.ttl > 0 {
 		e.WithTTL(si.s.ttl)
@@ -111,6 +115,7 @@ func (si *SettItem) setEntry(e *badger.Entry, vtype byte) error {
 	e.WithMeta(vtype)
 	return si.txn.SetEntry(e)
 }
+
 func (si *SettItem) SetStringValue(val string) error {
 	if !si.unlock && si.IsLocked() {
 		return fmt.Errorf("The item with key %s is locked. Can't update now", si.fullKey)
@@ -120,6 +125,7 @@ func (si *SettItem) SetStringValue(val string) error {
 	err := si.setEntry(e, STRING_TYPE)
 	return err
 }
+
 func (si *SettItem) GetStringValue() (string, error) {
 	item, err := si.txn.Get([]byte(si.fullKey))
 	if err != nil {

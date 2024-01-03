@@ -40,7 +40,7 @@ func (s *Sett) Table(table string) *Sett {
 	return &Sett{db: s.db, table: table}
 }
 
-//WithTTL sets a (TTL) Time To Live value for values in this table
+// WithTTL sets a (TTL) Time To Live value for values in this table
 // The TTL affects only the values added after the TTL is set.
 // Not applied to the values added before
 func (s *Sett) WithTTL(d time.Duration) *Sett {
@@ -48,7 +48,7 @@ func (s *Sett) WithTTL(d time.Duration) *Sett {
 	return s
 }
 
-//WithKeyLength sets the key length for generated string keys
+// WithKeyLength sets the key length for generated string keys
 // for example with Insert() call where the key is generated
 func (s *Sett) WithKeyLength(len int) *Sett {
 	s.keyLength = len
@@ -91,7 +91,7 @@ func (s *Sett) Insert(val interface{}) (string, error) {
 	return key, nil
 }
 
-//SetStruct can be used to set the value as any struct type
+// SetStruct can be used to set the value as any struct type
 func (s *Sett) SetStruct(key string, val interface{}) error {
 	err := s.db.Update(func(txn *badger.Txn) error {
 		sit := NewSettItem(s, txn, key)
@@ -100,10 +100,10 @@ func (s *Sett) SetStruct(key string, val interface{}) error {
 	return err
 }
 
-//Cut is to remove an item and return it
-//This is to avoid first getting the item and then deleting later
-//When you want to make sure there is only one owner to the
-//item, use Cut
+// Cut is to remove an item and return it
+// This is to avoid first getting the item and then deleting later
+// When you want to make sure there is only one owner to the
+// item, use Cut
 func (s *Sett) Cut(key string) (interface{}, error) {
 	var err error
 	var container genericContainer
@@ -135,7 +135,6 @@ func (s *Sett) Cut(key string) (interface{}, error) {
 }
 
 func (s *Sett) GetStruct(key string) (interface{}, error) {
-
 	var err error
 	var iv interface{}
 	err = s.db.View(func(txn *badger.Txn) error {
@@ -153,7 +152,7 @@ func (s *Sett) GetStruct(key string) (interface{}, error) {
 	return iv, nil
 }
 
-// Set passes a key & value to badger. Expects string for both
+// SetStr passes a key & value to badger. Expects string for both
 // key and value for convenience, unlike badger itself
 func (s *Sett) SetStr(key string, val string) error {
 	var err error
@@ -164,7 +163,7 @@ func (s *Sett) SetStr(key string, val string) error {
 	return err
 }
 
-// Get returns value of queried key from badger
+// GetStr returns value of queried key from badger
 func (s *Sett) GetStr(key string) (string, error) {
 	var val string
 	var err error
@@ -196,7 +195,7 @@ func (s *Sett) Get(key string) (interface{}, error) {
 	return ret, err
 }
 
-//HasKey checks the existence of a key
+// HasKey checks the existence of a key
 func (s *Sett) HasKey(key string) bool {
 	_, err := s.Get(key)
 	if err != nil {
@@ -281,9 +280,9 @@ func (s *Sett) Filter(filter FilterFunc) ([]string, error) {
 	return result, err
 }
 
-//Lock locks an item. If Lock is not received, (receives an error instead)
-//the caller shouldn't do any updates. The lock was already taken.
-//This is used in concurrent access scenarios
+// Lock locks an item. If Lock is not received, (receives an error instead)
+// the caller shouldn't do any updates. The lock was already taken.
+// This is used in concurrent access scenarios
 func (s *Sett) Lock(k string) error {
 	err := s.db.Update(func(txn *badger.Txn) error {
 		sit := NewSettItem(s, txn, k)
@@ -294,7 +293,7 @@ func (s *Sett) Lock(k string) error {
 
 type UpdateFunc func(v interface{}) error
 
-//Update - update one item. This function gets the item by the key.
+// Update - update one item. This function gets the item by the key.
 // The caller is to update the item in the callback.
 // If the item was locked first, pass unlock= true
 func (s *Sett) Update(k string, updater UpdateFunc, unlock bool) (interface{}, error) {
@@ -339,7 +338,7 @@ func (s *Sett) Delete(key string) error {
 	return s.deleteItem(key, false)
 }
 
-//UnlockAndDelete - Unlock and then delete the item.
+// UnlockAndDelete - Unlock and then delete the item.
 func (s *Sett) UnlockAndDelete(key string) error {
 	return s.deleteItem(key, true)
 }
